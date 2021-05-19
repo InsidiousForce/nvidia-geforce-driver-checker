@@ -1,0 +1,17 @@
+{
+  "name": "nvidia-geforce-driver-checker",
+  "version": "1.0.0",
+  "description": "Checks for new nvidia packages bs installed version",
+  "main": "app.js",
+  "scripts": {
+    "start": "npm run check",
+    "check": "node ./app.js"
+  },
+  "author": "Kurt Koller",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^0.21.1",
+    "node-notifier": "^9.0.1",
+    "node-powershell": "^4.0.0"
+  }
+}
