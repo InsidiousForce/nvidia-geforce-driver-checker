@@ -59,8 +59,8 @@ async function getDriverVersions() {
             const driver = IDS[0].downloadInfo;
             const version = Number(driver.Version);
             const url = driver.DownloadURL;
-            console.log("Installed: ", version);
-            console.log("Available: ", iv);
+            console.log("Installed: ", iv);
+            console.log("Available: ", version);
             if (version > iv) {
                 notify(iv, version, url);
             } else {
