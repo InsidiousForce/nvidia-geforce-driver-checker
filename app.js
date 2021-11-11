@@ -16,7 +16,7 @@ async function getInstalledVersion() {
         noProfile: true
     });
       
-    ps.addCommand('(Get-WmiObject Win32_PnPSignedDriver | Where-Object { $_.devicename -like "*nvidia*" -and $_.devicename -notlike "*audio*" -and $_.devicename -notlike "*USB*" -and $_.devicename -notlike "*SHIELD*" }).DriverVersion.SubString(7).Remove(1, 1).Insert(3, ".")');  
+    ps.addCommand('(Get-WmiObject Win32_PnPSignedDriver | Where-Object { $_.devicename -like "*nvidia*" -and $_.devicename -notlike "*audio*" -and $_.devicename -notlike "*USB*" -and $_.devicename -notlike "*SHIELD*" }).DriverVersion.SubString(6).Remove(1, 1).Insert(3, ".")');  
     return new Promise((resolve, reject) => {
         ps.invoke().then(output => {
             resolve(output);
