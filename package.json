@@ -10,8 +10,8 @@
   "author": "Kurt Koller",
   "license": "MIT",
   "dependencies": {
-    "axios": "^0.22.0",
+    "axios": "^0.25.0",
     "node-notifier": "^10.0.0",
-    "node-powershell": "^4.0.0"
+    "node-powershell": "^5.0.1"
   }
 }
