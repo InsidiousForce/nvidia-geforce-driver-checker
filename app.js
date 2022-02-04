@@ -2,7 +2,7 @@ const notifier = require('node-notifier');
 const path = require('path');
 const fs = require('fs');
 const Axios = require('axios');
-const shell = require('node-powershell');
+const { PowerShell } = require('node-powershell');
 
 //studio
 let driverUrl = "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/AjaxDriverService.php?func=DriverManualLookup&psid=101&pfid=815&osID=57&languageCode=1033&beta=0&isWHQL=0&dltype=-1&dch=1&upCRD=1&qnf=0&sort1=0&numberOfResults=10";
@@ -11,14 +11,14 @@ let driverUrl = "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/
 
 async function getInstalledVersion() {  
 
-    let ps = new shell({
+    let ps = new PowerShell({
         executionPolicy: 'Bypass',
         noProfile: true
     });
       
-    ps.addCommand('(Get-WmiObject Win32_PnPSignedDriver | Where-Object { $_.devicename -like "*nvidia*" -and $_.devicename -notlike "*audio*" -and $_.devicename -notlike "*USB*" -and $_.devicename -notlike "*SHIELD*" }).DriverVersion.SubString(6).Remove(1, 1).Insert(3, ".")');  
+    var command = PowerShell.command`(Get-WmiObject Win32_PnPSignedDriver | Where-Object { $_.devicename -like "*nvidia*" -and $_.devicename -notlike "*audio*" -and $_.devicename -notlike "*USB*" -and $_.devicename -notlike "*SHIELD*" }).DriverVersion.SubString(6).Remove(1, 1).Insert(3, ".")`  
     return new Promise((resolve, reject) => {
-        ps.invoke().then(output => {
+        ps.invoke(command).then(output => {
             resolve(output);
           }).catch(err => {
             reject(err);
@@ -50,7 +50,7 @@ async function getFile(url, p) {
 
 async function getDriverVersions() {
     let iv = await getInstalledVersion();
-    iv = Number(iv);
+    iv = Number(iv.raw);
 
     Axios.get(driverUrl)
         .then((response) => {
@@ -116,15 +116,16 @@ async function downloadCompleteNotification(p) {
             process.exit(0);
         }
         try {
-            let ps = new shell({
+            console.log(`Driver downloaded to ${p}`);
+            let ps = new PowerShell({
                 executionPolicy: 'Bypass',
                 noProfile: true
             });
-              
-            ps.addCommand(p); 
+            
+            command = PowerShell.command`${p}`;
             return new Promise((resolve, reject) => {
-                ps.invoke().then(output => {
-                    resolve(output);
+                ps.invoke(p).then(output => {
+                    resolve(output.raw);
                     process.exit(0);
                 }).catch(err => {
                     reject(err);
