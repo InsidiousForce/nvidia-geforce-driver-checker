@@ -75,7 +75,7 @@ async function getDriverVersions() {
 
 function notify(iv, version, url) {
     notifier.notify({
-        title: 'Nvidia - New 1080 driver available',
+        title: 'Nvidia - New 3060Ti driver available',
         message: 'There is a new driver for download! It is version ' + version + ' and you have ' + iv + '! Click to download it now!',
         icon: path.join(__dirname, 'card.png'), // Absolute path (doesn't work on balloons)
         sound: true, // Only Notification Center or Windows Toasters
@@ -103,7 +103,7 @@ function notify(iv, version, url) {
 
 async function downloadCompleteNotification(p) {
     notifier.notify({
-        title: 'Nvidia - New 1080 driver',
+        title: 'Nvidia - New 3060Ti driver',
         message: 'Download complete! Click to install it!',
         icon: path.join(__dirname, 'card.png'), // Absolute path (doesn't work on balloons)
         sound: true, // Only Notification Center or Windows Toasters
