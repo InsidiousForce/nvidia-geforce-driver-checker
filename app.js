@@ -1,7 +1,6 @@
 const notifier = require('node-notifier');
 const path = require('path');
 const fs = require('fs');
-const Axios = require('axios');
 const { PowerShell } = require('node-powershell');
 
 // 5060Ti on win 11
@@ -26,52 +25,79 @@ async function getInstalledVersion() {
             ps.dispose();
           });
     });
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  const units = ["KB", "MB", "GB", "TB"];
+  let u = -1;
+  do {
+    bytes /= 1024;
+    ++u;
+  } while (bytes >= 1024 && u < units.length - 1);
+  return bytes.toFixed(1) + " " + units[u];
+}
+
+async function getFile(url, p) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status} ${res.statusText}`);
+
+  const total = Number(res.headers.get("content-length")) || 0;
+  const fileStream = fs.createWriteStream(p);
+  const reader = res.body.getReader();
+
+  let loaded = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    loaded += value.byteLength;
+
+    if (total) {
+      const pct = ((loaded / total) * 100).toFixed(1);
+      process.stdout.write(
+        `\rDownloaded ${formatBytes(loaded)} / ${formatBytes(total)} (${pct}%)`
+      );
+    } else {
+      process.stdout.write(`\rDownloaded ${formatBytes(loaded)}`);
+    }
+
+    fileStream.write(Buffer.from(value));
   }
+  fileStream.end();
 
+  await new Promise((resolve, reject) => {
+    fileStream.on("finish", resolve);
+    fileStream.on("error", reject);
+  });
 
-async function getFile(url, p) {  
-    const writer = fs.createWriteStream(p);
-    const response = await Axios({
-        url,
-        method: 'GET',
-        responseType: 'stream',
-        onDownloadProgress: function (progressEvent) {
-            console.log(progressEvent);
-        },
-    });
-  
-    response.data.pipe(writer);
-  
-    return new Promise((resolve, reject) => {
-      writer.on('finish', resolve)
-      writer.on('error', reject)
-    });
-  }
-
+  process.stdout.write("\n");
+}
 
 async function getDriverVersions() {
     let iv = await getInstalledVersion();
     iv = Number(iv.raw);
 
-    Axios.get(driverUrl)
-        .then((response) => {
-            let IDS = response.data.IDS;
-            IDS = IDS.sort((a, b) => Number(a.downloadInfo.Version) < Number(b.downloadInfo.Version));
-            const driver = IDS[0].downloadInfo;
-            const version = Number(driver.Version);
-            const url = driver.DownloadURL;
-            console.log("Installed: ", iv);
-            console.log("Available: ", version);
-            if (version > iv) {
-                notify(iv, version, url);
-            } else {
-                console.log("up to date, exiting");
-                process.exit(0);
-            }
-        }, (error) => {
-            console.log(error);
-            process.exit(1);
-        });      
+    try {
+        const res = await fetch(driverUrl);
+        if (!res.ok) throw new Error(`Driver lookup failed: ${res.statusText}`);
+        const data = await res.json();
+        let IDS = data.IDS;
+        IDS = IDS.sort((a, b) => Number(b.downloadInfo.Version) - Number(a.downloadInfo.Version));
+        const driver = IDS[0].downloadInfo;
+        const version = Number(driver.Version);
+        const url = driver.DownloadURL;
+        console.log("Installed:", iv);
+        console.log("Available:", version);
+        if (version > iv) {
+            notify(iv, version, url);
+        } else {
+            console.log("up to date, exiting");
+            process.exit(0);
+        }
+    } catch (error) {
+        console.error(error);
+        process.exit(1);
+    }
 }
 
 function notify(iv, version, url) {
