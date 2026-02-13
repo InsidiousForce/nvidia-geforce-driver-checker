@@ -1,170 +1,198 @@
-const notifier = require('node-notifier');
-const path = require('path');
-const fs = require('fs');
-const { PowerShell } = require('node-powershell');
+const path = require("path");
+const fs = require("fs");
+const { exec } = require("child_process");
+const { PowerShell } = require("node-powershell");
 
-// 5060Ti on win 11
+// ================= CONFIG =================
+
 //studio
 let driverUrl = "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/AjaxDriverService.php?func=DriverManualLookup&psid=131&pfid=1076&osID=135&languageCode=1033&beta=0&isWHQL=0&dltype=-1&dch=1&upCRD=1&qnf=0&sort1=1&numberOfResults=10";
 // game
 //driverUrl = "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/AjaxDriverService.php?func=DriverManualLookup&psid=131&pfid=1076&osID=135&languageCode=1033&beta=0&isWHQL=0&dltype=-1&dch=1&upCRD=0&qnf=0&sort1=1&numberOfResults=10";
 
-async function getInstalledVersion() {  
+const DRIVER_DIR = path.resolve(__dirname, "drivers");
 
-    let ps = new PowerShell({
-        executionPolicy: 'Bypass',
-        noProfile: true
-    });
-      
-    var command = PowerShell.command`(Get-WmiObject Win32_PnPSignedDriver | Where-Object { $_.devicename -like "*nvidia*" -and $_.devicename -notlike "*audio*" -and $_.devicename -notlike "*USB*" -and $_.devicename -notlike "*SHIELD*" }).DriverVersion.SubString(6).Remove(1, 1).Insert(3, ".")`  
-    return new Promise((resolve, reject) => {
-        ps.invoke(command).then(output => {
-            resolve(output);
-          }).catch(err => {
-            reject(err);
-            ps.dispose();
-          });
-    });
-}
+// ================= MAIN =================
 
-function formatBytes(bytes) {
-  if (bytes < 1024) return bytes + " B";
-  const units = ["KB", "MB", "GB", "TB"];
-  let u = -1;
-  do {
-    bytes /= 1024;
-    ++u;
-  } while (bytes >= 1024 && u < units.length - 1);
-  return bytes.toFixed(1) + " " + units[u];
-}
+main();
 
-async function getFile(url, p) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status} ${res.statusText}`);
+// ================= FLOW =================
 
-  const total = Number(res.headers.get("content-length")) || 0;
-  const fileStream = fs.createWriteStream(p);
-  const reader = res.body.getReader();
+async function main() {
+  try {
+    ensureDir();
 
-  let loaded = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    loaded += value.byteLength;
+    const installed = await getInstalledVersion();
+    const latest = await getLatestDriver();
 
-    if (total) {
-      const pct = ((loaded / total) * 100).toFixed(1);
-      process.stdout.write(
-        `\rDownloaded ${formatBytes(loaded)} / ${formatBytes(total)} (${pct}%)`
-      );
-    } else {
-      process.stdout.write(`\rDownloaded ${formatBytes(loaded)}`);
+    console.log("Installed:", installed);
+    console.log("Available:", latest.version);
+
+    if (latest.version <= installed) {
+      console.log("Up to date");
+      process.exit(0);
     }
 
-    fileStream.write(Buffer.from(value));
-  }
-  fileStream.end();
+    const filePath = await download(latest.url);
 
-  await new Promise((resolve, reject) => {
-    fileStream.on("finish", resolve);
-    fileStream.on("error", reject);
+    launchInstaller(filePath);
+
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+  }
+}
+
+// ================= SETUP =================
+
+function ensureDir() {
+  if (!fs.existsSync(DRIVER_DIR)) {
+    fs.mkdirSync(DRIVER_DIR, { recursive: true });
+  }
+}
+
+// ================= VERSION =================
+
+async function getInstalledVersion() {
+
+  const ps = new PowerShell({
+    executionPolicy: "Bypass",
+    noProfile: true,
   });
 
-  process.stdout.write("\n");
+  const cmd = PowerShell.command`
+(Get-WmiObject Win32_PnPSignedDriver |
+Where-Object {
+$_.devicename -like "*nvidia*" -and
+$_.devicename -notlike "*audio*" -and
+$_.devicename -notlike "*USB*" -and
+$_.devicename -notlike "*SHIELD*"
+}).DriverVersion.SubString(6).Remove(1,1).Insert(3,".")
+`;
+
+  const out = await ps.invoke(cmd);
+
+  ps.dispose();
+
+  return Number(out.raw);
 }
 
-async function getDriverVersions() {
-    let iv = await getInstalledVersion();
-    iv = Number(iv.raw);
+// ================= LOOKUP =================
 
-    try {
-        const res = await fetch(driverUrl);
-        if (!res.ok) throw new Error(`Driver lookup failed: ${res.statusText}`);
-        const data = await res.json();
-        let IDS = data.IDS;
-        IDS = IDS.sort((a, b) => Number(b.downloadInfo.Version) - Number(a.downloadInfo.Version));
-        const driver = IDS[0].downloadInfo;
-        const version = Number(driver.Version);
-        const url = driver.DownloadURL;
-        console.log("Installed:", iv);
-        console.log("Available:", version);
-        if (version > iv) {
-            notify(iv, version, url);
-        } else {
-            console.log("up to date, exiting");
-            process.exit(0);
-        }
-    } catch (error) {
-        console.error(error);
-        process.exit(1);
+async function getLatestDriver() {
+
+  const res = await fetch(driverUrl);
+
+  if (!res.ok) {
+    throw new Error("Driver lookup failed");
+  }
+
+  const data = await res.json();
+
+  const list = data.IDS;
+
+  list.sort(
+    (a, b) =>
+      Number(b.downloadInfo.Version) -
+      Number(a.downloadInfo.Version)
+  );
+
+  const d = list[0].downloadInfo;
+
+  return {
+    version: Number(d.Version),
+    url: d.DownloadURL,
+  };
+}
+
+// ================= DOWNLOAD =================
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + " B";
+
+  const units = ["KB", "MB", "GB", "TB"];
+
+  let i = -1;
+
+  do {
+    bytes /= 1024;
+    i++;
+  } while (bytes >= 1024 && i < units.length - 1);
+
+  return bytes.toFixed(1) + " " + units[i];
+}
+
+async function download(url) {
+
+  const name = path.basename(url);
+
+  const filePath = path.join(DRIVER_DIR, name);
+
+  console.log("Downloading:", name);
+
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    throw new Error("Download failed");
+  }
+
+  const total = Number(res.headers.get("content-length")) || 0;
+
+  const file = fs.createWriteStream(filePath);
+
+  const reader = res.body.getReader();
+
+  let downloaded = 0;
+
+  while (true) {
+
+    const { done, value } = await reader.read();
+
+    if (done) break;
+
+    downloaded += value.length;
+
+    file.write(Buffer.from(value));
+
+    if (total) {
+      const pct = ((downloaded / total) * 100).toFixed(1);
+
+      process.stdout.write(
+        `\r${formatBytes(downloaded)} / ${formatBytes(total)} (${pct}%)`
+      );
+    } else {
+      process.stdout.write(
+        `\r${formatBytes(downloaded)}`
+      );
     }
+  }
+
+  file.end();
+
+  await new Promise(r => file.on("finish", r));
+
+  process.stdout.write("\n");
+
+  console.log("Saved:", filePath);
+
+  return filePath;
 }
 
-function notify(iv, version, url) {
-    notifier.notify({
-        title: 'Nvidia - New 5060Ti driver available',
-        message: 'There is a new driver for download! It is version ' + version + ' and you have ' + iv + '! Click to download it now!',
-        icon: path.join(__dirname, 'card.png'), // Absolute path (doesn't work on balloons)
-        sound: true, // Only Notification Center or Windows Toasters
-        wait: true, // Wait with callback, until user action is taken against notification, does not apply to Windows Toasters as they always wait or notify-send as it does not support the wait option
-        appID: "All this cos Geforce Experience sucks",
-        timeout: 300
-    },
-    async function (err, response, metadata) {
-        if (response === "timeout") {
-            console.log("Exiting..."); 
-            process.exit(0);           
-        }
-        console.log("Downloading..."); 
-        try {
-            const filename = path.basename(url);
-            const p = path.resolve(__dirname, 'drivers', filename);            
-            await getFile(url, p);
-            await downloadCompleteNotification(p);
-        } catch(e) {
-            console.error(e);
-            process.exit(1);
-        }
-    });
+
+// ================= INSTALL =================
+
+function launchInstaller(p) {
+  const fullPath = path.resolve(p);
+  console.log("Launching installer:", fullPath);
+
+  // Wrap path in double quotes
+  const cmd = `start "" "${fullPath}"`;
+
+  exec(cmd, { windowsHide: false }, (err) => {
+    if (err) {
+      console.error("Failed to launch installer:", err);
+      process.exit(1);
+    }
+    process.exit(0);
+  });
 }
 
-async function downloadCompleteNotification(p) {
-    notifier.notify({
-        title: 'Nvidia - New 5060Ti driver',
-        message: 'Download complete! Click to install it!',
-        icon: path.join(__dirname, 'card.png'), // Absolute path (doesn't work on balloons)
-        sound: true, // Only Notification Center or Windows Toasters
-        wait: true, // Wait with callback, until user action is taken against notification, does not apply to Windows Toasters as they always wait or notify-send as it does not support the wait option
-        appID: "All this cos Geforce Experience sucks",
-        timeout: 300
-    }, async function (err, response) {
-        if (response === "timeout") {
-            console.log("Exiting. Driver is in driver folder.")
-            process.exit(0);
-        }
-        try {
-            console.log(`Driver downloaded to ${p}`);
-            let ps = new PowerShell({
-                executionPolicy: 'Bypass',
-                noProfile: true
-            });
-            
-            command = PowerShell.command`${p}`;
-            return new Promise((resolve, reject) => {
-                ps.invoke(p).then(output => {
-                    resolve(output.raw);
-                    process.exit(0);
-                }).catch(err => {
-                    reject(err);
-                    ps.dispose();
-                    process.exit(0);
-                });
-            });
-        } catch(e) {
-            console.error(e);
-            process.exit(1);
-        }
-    });
-}
-
-getDriverVersions();

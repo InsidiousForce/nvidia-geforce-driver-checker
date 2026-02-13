@@ -16,14 +16,9 @@ website makes you jump through hoops to check for new versions.
 ```
 
 This will check the NVidia website for driver versions, compare
-to your installed version, and if there is a new version, put
-up a notification. Click on the notification to download. When
-finished downloading, another notification appears. Click again
-to install.
-
-The timeouts are set 3 minutes long on the notifications. If one
-times out, the program will figure you're not interested and exit.
-There's no way to click to indicate a "no" on download/install.
+to your installed version, and if there is a new version, download
+it and then install it. It used to have notifications and stuff
+but that was all removed.
 
 ## Game Ready Drivers vs Studio Drivers
 
