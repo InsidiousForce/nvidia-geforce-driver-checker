@@ -32,6 +32,13 @@ will be interested in this except me. Who knows.
 This only works on Windows 10 as far as I know, I didn't see much
 point in making this cross platform.
 
+## Future 
+
+This was ported to this .NET project because I got tired of having to
+update packages constantly in node hell:
+
+[InsidiousForce/NvidiaDriverChecker](https://github.com/InsidiousForce/NvidiaDriverChecker)
+
 
 
 
